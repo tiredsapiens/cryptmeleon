@@ -1,12 +1,14 @@
 #include "rsg.h"
+#include <png.h>
+#include <stdio.h>
 #include <string.h>
-Conf *init(char *path) {
+Conf *init(char *read_path) {
 
-  FILE *fd = fopen(path, "rb");
+  FILE *fd = fopen(read_path, "rb");
   Conf *ret = (Conf *)malloc(sizeof(Conf));
   unsigned char header[8];
   if (!fd) {
-    printf("Error when trying to open file %s\n", path);
+    printf("Error when trying to open file %s\n", read_path);
     exit(EXIT_FAILURE);
   }
   if (fread(header, 1, 8, fd) != 8) {
@@ -49,10 +51,44 @@ Conf *init(char *path) {
   ret->width = width;
   ret->color_type = color_type;
   ret->bit_depth = bit_depth;
-  ret->infop = info_ptr;
-  ret->structp = png_ptr;
+  ret->read_infop = info_ptr;
+  ret->read_pngp = png_ptr;
   // fclose(fd);
+  ret->row_pointers = (png_bytep *)malloc(sizeof(png_bytep) * ret->height);
+  if (!ret->row_pointers) {
+    perror("Failed to allocate memory for row_pointers");
+    exit(EXIT_FAILURE);
+  }
+  for (png_uint_32 y = 0; y < ret->height; y++) {
+    ret->row_pointers[y] = (png_byte *)malloc(
+        png_get_rowbytes((ret->read_pngp), (ret->read_infop)));
+    if (!ret->row_pointers[y]) {
+      perror("Failed to allocate memory for a row");
+      exit(EXIT_FAILURE);
+    }
+  }
+
+  png_read_image(ret->read_pngp, ret->row_pointers);
+  fclose(fd);
+
+  ret->write_pngp =
+      png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+  ret->write_infop = png_create_info_struct(ret->write_pngp);
+  if (setjmp(png_jmpbuf(ret->write_pngp)))
+    exit(EXIT_FAILURE);
+
+  png_set_IHDR(ret->write_pngp, ret->write_infop, ret->width, ret->height,
+               ret->bit_depth, ret->color_type, PNG_INTERLACE_NONE,
+               PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
   return ret;
+}
+void free_config(Conf *s) {
+  png_destroy_read_struct(&s->read_pngp, &s->read_infop, NULL);
+  png_destroy_write_struct(&s->write_pngp, &s->write_infop);
+  for (int y = 0; y < s->height; y++) {
+    free(s->row_pointers[y]);
+  }
+  free(s->row_pointers);
 }
 void write_png_file(char *path, png_structp png, png_infop info,
                     png_bytep *row_pointers) {
@@ -69,84 +105,111 @@ void write_png_file(char *path, png_structp png, png_infop info,
   fclose(fp);
 }
 
-int main() {
+int main(int argc, char **argv) {
   char *string = "Graceless tarnished what is thy business with these thrones";
   char *key = "test";
   char *path = "./gates_of_divinity.png";
   char *path2 = "./gates_of_divinity2.png";
   Conf *config = init(path);
-  png_bytep *row_pointers =
-      (png_bytep *)malloc(sizeof(png_bytep) * config->height);
-  if (!row_pointers) {
-    perror("Failed to allocate memory for row_pointers");
-    exit(EXIT_FAILURE);
-  }
-  for (png_uint_32 y = 0; y < config->height; y++) {
-    row_pointers[y] = (png_byte *)malloc(
-        png_get_rowbytes((config->structp), (config->infop)));
-    if (!row_pointers[y]) {
-      perror("Failed to allocate memory for a row");
-      exit(EXIT_FAILURE);
-    }
-  }
 
-  printf("hi\n");
-  fflush(stdout);
-  png_read_image(config->structp, row_pointers);
-  printf("hi\n");
-  fflush(stdout);
   int len = strlen(string);
   int total_pixels = config->height * config->width;
   Lcg *s = init_seed(key, total_pixels);
   int *seq = fy_shuffle(s);
   char current_bit;
+  int z = 0;
   for (char *l = string; *l; l++) {
-    printf("%c ", *l);
-    for (char k = 1; k <= 8; k++, seq++) {
-      int i = *seq / config->width;
-      int j = *seq - config->width * i;
+    printf("next character\n");
+    for (char k = 0; k < 8; k++, z++) {
+      int i = seq[z] / config->width;
+      int j = seq[z] - config->width * i;
+
+      printf("next bit\n");
       // printf("i=%d,j=%d,seq=%d,char=%c,width=%d\n", i, j, *seq, k,
       //        config->width);
-      png_bytep px = &row_pointers[i][j];
-      int is_odd =
+
+      // printf("k:%d,seq:%d,i:%d,j:%d,z:%d\n", k, seq[z], i, j, z);
+      png_bytep px = &config->row_pointers[i][j];
+      int remainder =
           px[2] % 2; // checking whether the value of the blue channel is either
                      // odd or even, cause if its odd its LSB is 1 else 0
-      current_bit = l && (1 << k);
+      current_bit = (*l) & (1 << k);
+      // printf("int value of %c =%d\n", *l, *l);
+      printf("lth bit of *l (l=%c,k=%d): %d,while bluechannel bit is %d\n", *l,
+             k, (current_bit != 0), (remainder != 0));
       if (current_bit != 0) {
         // means that current bit is 1
-        if (!is_odd) {
+        if (remainder == 0) {
           px[2] > 0 ? px[2]-- : px[2]++;
+
+          printf("kth bit of *l blue channel after changing : %d\n",
+                 (px[2] % 2 != 0));
+          fflush(stdout);
           // no reason to check for when its odd cause its lsb value will
           // already be 1
         } else { // if current bit is 0
-          if (is_odd) {
+          //
+          if (remainder != 0) {
             px[2] > 0 ? px[2]-- : px[2]++;
+            printf("kth bit of *l blue channel after changing : %d\n",
+                   (px[2] % 2 != 0));
+            fflush(stdout);
           }
         }
       }
+      if ((current_bit != 0) != (px[2] % 2) != 0) {
+        printf("ACHTUNG \n");
+      }
     }
   }
-  FILE *out_fp = fopen(path2, "wb");
-  if (!out_fp) {
-    perror("fopen");
-    exit(EXIT_FAILURE);
+
+  // FILE *out_fp = fopen(path2, "wb");
+  // if (!out_fp) {
+  //   perror("fopen");
+  //   exit(EXIT_FAILURE);
+  // }
+
+  // png_structp write_png =
+  //     png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+  // png_infop write_info = png_create_info_struct(write_png);
+  // if (setjmp(png_jmpbuf(write_png)))
+  //   exit(EXIT_FAILURE);
+
+  // png_set_IHDR(write_png, write_info, config->width, config->height,
+  //              config->bit_depth, config->color_type, PNG_INTERLACE_NONE,
+  //              PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
+
+  write_png_file(path2, config->write_pngp, config->write_infop,
+                 config->row_pointers);
+  free_config(config);
+  config = init(path2);
+  // seq = fy_shuffle(s);
+  char *decoded_str;
+  decoded_str = (char *)malloc(strlen(string) + 1);
+  z = 0;
+
+  char c = 0;
+  for (int l = 0; l < strlen(string); l++) {
+    c = 0;
+    for (char k = 0; k < 8; k++, z++) {
+      int i = seq[z] / config->width;
+      int j = seq[z] - config->width * i;
+      // printf("i=%d,j=%d,seq=%d,char=%c,width=%d\n", i, j, *seq, k,
+      //        config->width);
+      //
+      // printf("k:%d,seq:%d,i:%d,j:%d,l=%d,z=%d\n", k, seq[l], i, j, l, z);
+      png_bytep px = &config->row_pointers[i][j];
+      char last_bit = 0;
+      int is_odd = px[2] % 2 != 0;
+      if (is_odd) {
+        last_bit = 1;
+      }
+      c = c | (last_bit << k);
+    }
+    decoded_str[l] = c;
   }
-
-  printf("hi\n");
+  decoded_str[strlen(string)] = 0;
+  printf("%s\n", decoded_str);
+  printf("%d\n", (int)strlen(string));
   fflush(stdout);
-  png_structp write_png =
-      png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-  png_infop write_info = png_create_info_struct(write_png);
-  if (setjmp(png_jmpbuf(write_png)))
-    exit(EXIT_FAILURE);
-
-  printf("hi\n");
-  fflush(stdout);
-  png_set_IHDR(write_png, write_info, config->width, config->height,
-               config->bit_depth, config->color_type, PNG_INTERLACE_NONE,
-               PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
-
-  printf("hi\n");
-  fflush(stdout);
-  write_png_file(path2, write_png, write_info, row_pointers);
 }

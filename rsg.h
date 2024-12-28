@@ -25,10 +25,13 @@ struct s_lcg{
 typedef struct s_lcg Lcg;
  
 struct s_png_conf{
-  png_structp structp;
-  png_infop   infop;
+  png_structp read_pngp;
+  png_infop   read_infop;
+  png_structp write_pngp;
+  png_infop   write_infop;
   png_uint_32 width; 
   png_uint_32 height;
+  png_bytep *row_pointers;
   int color_type ;
   int bit_depth ;
 };
