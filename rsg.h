@@ -43,4 +43,5 @@ int * fy_shuffle(Lcg*);
 int generate_single(Lcg*);
 Lcg* init_seed(char*,int);
 Conf* init(char*);
+void free_config(Conf*);
 #endif // !rsg

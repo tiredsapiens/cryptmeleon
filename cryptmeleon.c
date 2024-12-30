@@ -105,21 +105,12 @@ void write_png_file(char *path, png_structp png, png_infop info,
   fclose(fp);
 }
 
-int main(int argc, char **argv) {
-  char *string = "Graceless tarnished what is thy business with these thrones";
-  char *key = "test";
-  char *path = "./gates_of_divinity.png";
-  char *path2 = "./gates_of_divinity2.png";
-  Conf *config = init(path);
+void encode_bytes(Conf *config, int *seq, char *data) {
 
-  int len = strlen(string);
-  int total_pixels = config->height * config->width;
-  Lcg *s = init_seed(key, total_pixels);
-  int *seq = fy_shuffle(s);
   char current_bit;
   int z = 0;
-  for (char *l = string; *l; l++) {
-    printf("next character\n");
+  for (char *l = data; *l; l++) {
+    printf("next byte\n");
     for (char k = 0; k < 8; k++, z++) {
       int i = seq[z] / config->width;
       int j = seq[z] - config->width * i;
@@ -130,16 +121,17 @@ int main(int argc, char **argv) {
 
       // printf("k:%d,seq:%d,i:%d,j:%d,z:%d\n", k, seq[z], i, j, z);
       png_bytep px = &config->row_pointers[i][j];
-      int remainder =
-          px[2] % 2; // checking whether the value of the blue channel is either
-                     // odd or even, cause if its odd its LSB is 1 else 0
-      current_bit = (*l) & (1 << k);
+      int last_pixel_bit =
+          (px[2] % 2) !=
+          0; // checking whether the value of the blue channel is either
+             // odd or even, cause if its odd its LSB is 1 else 0
+      current_bit = ((*l) & (1 << k)) != 0;
       // printf("int value of %c =%d\n", *l, *l);
       printf("lth bit of *l (l=%c,k=%d): %d,while bluechannel bit is %d\n", *l,
-             k, (current_bit != 0), (remainder != 0));
-      if (current_bit != 0) {
+             k, (current_bit), (last_pixel_bit));
+      if (current_bit == 1) {
         // means that current bit is 1
-        if (remainder == 0) {
+        if (last_pixel_bit != 1) {
           px[2] > 0 ? px[2]-- : px[2]++;
 
           printf("kth bit of *l blue channel after changing : %d\n",
@@ -147,21 +139,86 @@ int main(int argc, char **argv) {
           fflush(stdout);
           // no reason to check for when its odd cause its lsb value will
           // already be 1
-        } else { // if current bit is 0
-          //
-          if (remainder != 0) {
-            px[2] > 0 ? px[2]-- : px[2]++;
-            printf("kth bit of *l blue channel after changing : %d\n",
-                   (px[2] % 2 != 0));
-            fflush(stdout);
-          }
+        }
+      } else { // if current bit is 0
+        //
+        if (last_pixel_bit != 0) {
+          px[2] > 0 ? px[2]-- : px[2]++;
+          printf("kth bit of *l blue channel after changing : %d\n",
+                 (px[2] % 2 != 0));
+          fflush(stdout);
         }
       }
+
       if ((current_bit != 0) != (px[2] % 2) != 0) {
         printf("ACHTUNG \n");
       }
     }
   }
+}
+
+int main(int argc, char **argv) {
+  char *string =
+      "Graceless tarnished what is thy business with these thrones???";
+  char *key = "test234";
+  char *path = "./gates_of_divinity.png";
+  char *path2 = "./gates_of_divinity2.png";
+  Conf *config = init(path);
+
+  // int len = strlen(string);
+  int total_pixels = config->height * config->width;
+  Lcg *s = init_seed(key, total_pixels);
+  int *seq = fy_shuffle(s);
+  // char current_bit;
+
+  // int z = 0;
+  // for (char *l = string; *l; l++) {
+  //   printf("next byte\n");
+  //   for (char k = 0; k < 8; k++, z++) {
+  //     int i = seq[z] / config->width;
+  //     int j = seq[z] - config->width * i;
+
+  //    printf("next bit\n");
+  //    // printf("i=%d,j=%d,seq=%d,char=%c,width=%d\n", i, j, *seq, k,
+  //    //        config->width);
+
+  //    // printf("k:%d,seq:%d,i:%d,j:%d,z:%d\n", k, seq[z], i, j, z);
+  //    png_bytep px = &config->row_pointers[i][j];
+  //    int last_pixel_bit =
+  //        (px[2] % 2) !=
+  //        0; // checking whether the value of the blue channel is either
+  //           // odd or even, cause if its odd its LSB is 1 else 0
+  //    current_bit = ((*l) & (1 << k)) != 0;
+  //    // printf("int value of %c =%d\n", *l, *l);
+  //    printf("lth bit of *l (l=%c,k=%d): %d,while bluechannel bit is %d\n",
+  //    *l,
+  //           k, (current_bit), (last_pixel_bit));
+  //    if (current_bit == 1) {
+  //      // means that current bit is 1
+  //      if (last_pixel_bit != 1) {
+  //        px[2] > 0 ? px[2]-- : px[2]++;
+
+  //        printf("kth bit of *l blue channel after changing : %d\n",
+  //               (px[2] % 2 != 0));
+  //        fflush(stdout);
+  //        // no reason to check for when its odd cause its lsb value will
+  //        // already be 1
+  //      }
+  //    } else { // if current bit is 0
+  //      //
+  //      if (last_pixel_bit != 0) {
+  //        px[2] > 0 ? px[2]-- : px[2]++;
+  //        printf("kth bit of *l blue channel after changing : %d\n",
+  //               (px[2] % 2 != 0));
+  //        fflush(stdout);
+  //      }
+  //    }
+
+  //    if ((current_bit != 0) != (px[2] % 2) != 0) {
+  //      printf("ACHTUNG \n");
+  //    }
+  //  }
+  //}
 
   // FILE *out_fp = fopen(path2, "wb");
   // if (!out_fp) {
@@ -178,6 +235,7 @@ int main(int argc, char **argv) {
   // png_set_IHDR(write_png, write_info, config->width, config->height,
   //              config->bit_depth, config->color_type, PNG_INTERLACE_NONE,
   //              PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
+  encode_bytes(config, seq, string);
 
   write_png_file(path2, config->write_pngp, config->write_infop,
                  config->row_pointers);
@@ -186,7 +244,7 @@ int main(int argc, char **argv) {
   // seq = fy_shuffle(s);
   char *decoded_str;
   decoded_str = (char *)malloc(strlen(string) + 1);
-  z = 0;
+  int z = 0;
 
   char c = 0;
   for (int l = 0; l < strlen(string); l++) {
@@ -212,4 +270,5 @@ int main(int argc, char **argv) {
   printf("%s\n", decoded_str);
   printf("%d\n", (int)strlen(string));
   fflush(stdout);
+  free_config(config);
 }
