@@ -2,6 +2,7 @@
 #include <png.h>
 #include <stdio.h>
 #include <string.h>
+char VERBOSE = 0;
 Conf *init(char *read_path) {
 
   FILE *fd = fopen(read_path, "rb");
@@ -12,6 +13,7 @@ Conf *init(char *read_path) {
     exit(EXIT_FAILURE);
   }
   if (fread(header, 1, 8, fd) != 8) {
+
     perror("Failed to read PNG signature\n");
     fclose(fd);
     exit(EXIT_FAILURE);
@@ -45,8 +47,9 @@ Conf *init(char *read_path) {
   png_uint_32 height = png_get_image_height(png_ptr, info_ptr);
   int color_type = png_get_color_type(png_ptr, info_ptr);
   int bit_depth = png_get_bit_depth(png_ptr, info_ptr);
-  printf("Image: %ux%u, Color Type: %d, Bit Depth: %d\n", width, height,
-         color_type, bit_depth);
+  if (VERBOSE)
+    printf("Image: %ux%u, Color Type: %d, Bit Depth: %d\n", width, height,
+           color_type, bit_depth);
   ret->height = height;
   ret->width = width;
   ret->color_type = color_type;
@@ -106,16 +109,50 @@ void write_png_file(char *path, png_structp png, png_infop info,
 }
 
 void encode_bytes(Conf *config, int *seq, char *data) {
-
+  int len = strlen(data);
   char current_bit;
+  int i, j;
   int z = 0;
-  for (char *l = data; *l; l++) {
-    printf("next byte\n");
-    for (char k = 0; k < 8; k++, z++) {
-      int i = seq[z] / config->width;
-      int j = seq[z] - config->width * i;
+  for (int k = 0; k < 32; k++, z++) {
+    i = seq[z] / config->width;
+    j = seq[z] - config->width * i;
 
-      printf("next bit\n");
+    current_bit = ((len) & (1 << k)) != 0;
+    if (VERBOSE)
+      printf("current length(%d) bit %d\n", len, current_bit);
+
+    png_bytep px = &config->row_pointers[i][j];
+    int last_pixel_bit = (px[2] % 2) != 0;
+
+    if (current_bit == 1) {
+      // means that current bit is 1
+      if (last_pixel_bit != 1) {
+        px[2] > 0 ? px[2]-- : px[2]++;
+
+        // printf("kth bit of *l blue channel after changing : %d\n",
+        //        (px[2] % 2 != 0));
+        // fflush(stdout);
+        //  no reason to check for when its odd cause its lsb value will
+        //  already be 1
+      }
+    } else { // if current bit is 0
+      //
+      if (last_pixel_bit != 0) {
+        px[2] > 0 ? px[2]-- : px[2]++;
+      }
+    }
+
+    if ((current_bit != 0) != (px[2] % 2) != 0) {
+      printf("achtung bits are not the same even after changing \n");
+    }
+  }
+  for (char *l = data; *l; l++) {
+    if (VERBOSE)
+      printf("next byte\n");
+    for (char k = 0; k < 8; k++, z++) {
+      i = seq[z] / config->width;
+      j = seq[z] - config->width * i;
+
       // printf("i=%d,j=%d,seq=%d,char=%c,width=%d\n", i, j, *seq, k,
       //        config->width);
 
@@ -124,18 +161,19 @@ void encode_bytes(Conf *config, int *seq, char *data) {
       int last_pixel_bit =
           (px[2] % 2) !=
           0; // checking whether the value of the blue channel is either
-             // odd or even, cause if its odd its LSB is 1 else 0
+             // odd or even, cause if its odd its lsb is 1 else 0
       current_bit = ((*l) & (1 << k)) != 0;
-      // printf("int value of %c =%d\n", *l, *l);
-      printf("lth bit of *l (l=%c,k=%d): %d,while bluechannel bit is %d\n", *l,
-             k, (current_bit), (last_pixel_bit));
+      if (VERBOSE)
+        printf("lth bit of *l (l=%c,k=%d): %d,while bluechannel bit is %d\n",
+               *l, k, (current_bit), (last_pixel_bit));
       if (current_bit == 1) {
         // means that current bit is 1
         if (last_pixel_bit != 1) {
           px[2] > 0 ? px[2]-- : px[2]++;
 
-          printf("kth bit of *l blue channel after changing : %d\n",
-                 (px[2] % 2 != 0));
+          if (VERBOSE)
+            printf("kth bit of *l blue channel after changing : %d\n",
+                   (px[2] % 2 != 0));
           fflush(stdout);
           // no reason to check for when its odd cause its lsb value will
           // already be 1
@@ -144,8 +182,9 @@ void encode_bytes(Conf *config, int *seq, char *data) {
         //
         if (last_pixel_bit != 0) {
           px[2] > 0 ? px[2]-- : px[2]++;
-          printf("kth bit of *l blue channel after changing : %d\n",
-                 (px[2] % 2 != 0));
+          if (VERBOSE)
+            printf("kth bit of *l blue channel after changing : %d\n",
+                   (px[2] % 2 != 0));
           fflush(stdout);
         }
       }
@@ -157,105 +196,31 @@ void encode_bytes(Conf *config, int *seq, char *data) {
   }
 }
 
-int main(int argc, char **argv) {
-  char *string =
-      "Graceless tarnished what is thy business with these thrones???";
-  char *key = "test234";
-  char *path = "./gates_of_divinity.png";
-  char *path2 = "./gates_of_divinity2.png";
-  Conf *config = init(path);
+char *decode_bytes(Conf *config, int *seq) {
 
-  // int len = strlen(string);
-  int total_pixels = config->height * config->width;
-  Lcg *s = init_seed(key, total_pixels);
-  int *seq = fy_shuffle(s);
-  // char current_bit;
-
-  // int z = 0;
-  // for (char *l = string; *l; l++) {
-  //   printf("next byte\n");
-  //   for (char k = 0; k < 8; k++, z++) {
-  //     int i = seq[z] / config->width;
-  //     int j = seq[z] - config->width * i;
-
-  //    printf("next bit\n");
-  //    // printf("i=%d,j=%d,seq=%d,char=%c,width=%d\n", i, j, *seq, k,
-  //    //        config->width);
-
-  //    // printf("k:%d,seq:%d,i:%d,j:%d,z:%d\n", k, seq[z], i, j, z);
-  //    png_bytep px = &config->row_pointers[i][j];
-  //    int last_pixel_bit =
-  //        (px[2] % 2) !=
-  //        0; // checking whether the value of the blue channel is either
-  //           // odd or even, cause if its odd its LSB is 1 else 0
-  //    current_bit = ((*l) & (1 << k)) != 0;
-  //    // printf("int value of %c =%d\n", *l, *l);
-  //    printf("lth bit of *l (l=%c,k=%d): %d,while bluechannel bit is %d\n",
-  //    *l,
-  //           k, (current_bit), (last_pixel_bit));
-  //    if (current_bit == 1) {
-  //      // means that current bit is 1
-  //      if (last_pixel_bit != 1) {
-  //        px[2] > 0 ? px[2]-- : px[2]++;
-
-  //        printf("kth bit of *l blue channel after changing : %d\n",
-  //               (px[2] % 2 != 0));
-  //        fflush(stdout);
-  //        // no reason to check for when its odd cause its lsb value will
-  //        // already be 1
-  //      }
-  //    } else { // if current bit is 0
-  //      //
-  //      if (last_pixel_bit != 0) {
-  //        px[2] > 0 ? px[2]-- : px[2]++;
-  //        printf("kth bit of *l blue channel after changing : %d\n",
-  //               (px[2] % 2 != 0));
-  //        fflush(stdout);
-  //      }
-  //    }
-
-  //    if ((current_bit != 0) != (px[2] % 2) != 0) {
-  //      printf("ACHTUNG \n");
-  //    }
-  //  }
-  //}
-
-  // FILE *out_fp = fopen(path2, "wb");
-  // if (!out_fp) {
-  //   perror("fopen");
-  //   exit(EXIT_FAILURE);
-  // }
-
-  // png_structp write_png =
-  //     png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-  // png_infop write_info = png_create_info_struct(write_png);
-  // if (setjmp(png_jmpbuf(write_png)))
-  //   exit(EXIT_FAILURE);
-
-  // png_set_IHDR(write_png, write_info, config->width, config->height,
-  //              config->bit_depth, config->color_type, PNG_INTERLACE_NONE,
-  //              PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
-  encode_bytes(config, seq, string);
-
-  write_png_file(path2, config->write_pngp, config->write_infop,
-                 config->row_pointers);
-  free_config(config);
-  config = init(path2);
-  // seq = fy_shuffle(s);
   char *decoded_str;
-  decoded_str = (char *)malloc(strlen(string) + 1);
   int z = 0;
 
   char c = 0;
-  for (int l = 0; l < strlen(string); l++) {
+  int encoded_len = 0;
+  for (int k = 0; k < 32; k++, z++) {
+
+    int i = seq[z] / config->width;
+    int j = seq[z] - config->width * i;
+    png_bytep px = &config->row_pointers[i][j];
+    char last_bit = 0;
+    int is_odd = px[2] % 2 != 0;
+    if (is_odd) {
+      last_bit = 1;
+    }
+    encoded_len = encoded_len | (last_bit << k);
+  }
+  decoded_str = (char *)malloc(encoded_len + 1);
+  for (int l = 0; l < encoded_len; l++) {
     c = 0;
     for (char k = 0; k < 8; k++, z++) {
       int i = seq[z] / config->width;
       int j = seq[z] - config->width * i;
-      // printf("i=%d,j=%d,seq=%d,char=%c,width=%d\n", i, j, *seq, k,
-      //        config->width);
-      //
-      // printf("k:%d,seq:%d,i:%d,j:%d,l=%d,z=%d\n", k, seq[l], i, j, l, z);
       png_bytep px = &config->row_pointers[i][j];
       char last_bit = 0;
       int is_odd = px[2] % 2 != 0;
@@ -266,9 +231,30 @@ int main(int argc, char **argv) {
     }
     decoded_str[l] = c;
   }
-  decoded_str[strlen(string)] = 0;
+  decoded_str[encoded_len] = 0;
   printf("%s\n", decoded_str);
-  printf("%d\n", (int)strlen(string));
+  printf("%d\n", encoded_len);
   fflush(stdout);
+  return decoded_str;
+}
+int main(int argc, char **argv) {
+  char *string = "super duper secret info";
+  char *key = "test234";
+  char *path = "./gates_of_divinity.png";
+  char *path2 = "./gates_of_divinity2.png";
+  Conf *config = init(path);
+
+  // int len = strlen(string);
+  int total_pixels = config->height * config->width;
+  Lcg *s = init_seed(key, total_pixels);
+  int *seq = fy_shuffle(s);
+  encode_bytes(config, seq, string);
+
+  write_png_file(path2, config->write_pngp, config->write_infop,
+                 config->row_pointers);
+  free_config(config);
+  config = init(path2);
+  // seq = fy_shuffle(s);
+  char *string2 = decode_bytes(config, seq);
   free_config(config);
 }
