@@ -255,6 +255,6 @@ int main(int argc, char **argv) {
   free_config(config);
   config = init(path2);
   // seq = fy_shuffle(s);
-  char *string2 = decode_bytes(config, seq);
+  char *decoded_string = decode_bytes(config, seq);
   free_config(config);
 }
