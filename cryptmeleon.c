@@ -1,7 +1,4 @@
 #include "rsg.h"
-#include <png.h>
-#include <stdio.h>
-#include <string.h>
 char VERBOSE = 0;
 Conf *init(char *read_path) {
 
@@ -143,7 +140,7 @@ void encode_bytes(Conf *config, int *seq, char *data) {
     }
 
     if ((current_bit != 0) != (px[2] % 2) != 0) {
-      printf("achtung bits are not the same even after changing \n");
+      printf("bits are not the same even after changing \n");
     }
   }
   for (char *l = data; *l; l++) {
@@ -190,7 +187,7 @@ void encode_bytes(Conf *config, int *seq, char *data) {
       }
 
       if ((current_bit != 0) != (px[2] % 2) != 0) {
-        printf("ACHTUNG \n");
+        printf("bits are not the same after changing\n");
       }
     }
   }
@@ -237,24 +234,59 @@ char *decode_bytes(Conf *config, int *seq) {
   fflush(stdout);
   return decoded_str;
 }
-int main(int argc, char **argv) {
-  char *string = "super duper secret info";
-  char *key = "test234";
-  char *path = "./gates_of_divinity.png";
-  char *path2 = "./gates_of_divinity2.png";
-  Conf *config = init(path);
+void create_diff(Conf *encoded_image, int *seq) {
 
-  // int len = strlen(string);
-  int total_pixels = config->height * config->width;
-  Lcg *s = init_seed(key, total_pixels);
-  int *seq = fy_shuffle(s);
-  encode_bytes(config, seq, string);
+  int z = 0;
 
-  write_png_file(path2, config->write_pngp, config->write_infop,
-                 config->row_pointers);
-  free_config(config);
-  config = init(path2);
-  // seq = fy_shuffle(s);
-  char *decoded_string = decode_bytes(config, seq);
-  free_config(config);
+  char c = 0;
+  int encoded_len = 0;
+  for (int k = 0; k < 32; k++, z++) {
+    int i = seq[z] / encoded_image->width;
+    int j = seq[z] - encoded_image->width * i;
+    png_bytep px = &encoded_image->row_pointers[i][j];
+    char last_bit = 0;
+    int is_odd = px[2] % 2 != 0;
+    if (is_odd) {
+      last_bit = 1;
+    }
+    encoded_len = encoded_len | (last_bit << k);
+  }
+  for (int l = 0; l < encoded_len; l++, z++) {
+    int i = seq[z] / encoded_image->width;
+    int j = seq[z] - encoded_image->width * i;
+    printf("l(%d) with coordinates %d %d\n", l, i, j);
+    png_bytep px = &encoded_image->row_pointers[i][j];
+    px[0] = 255;
+    px[1] = 0;
+    px[2] = 0;
+    px[3] = 255;
+  }
+  write_png_file("./gates_of_divinity3.png", encoded_image->write_pngp,
+                 encoded_image->write_infop, encoded_image->row_pointers);
 }
+// int main2(int argc, char **argv) {
+//   char *string = "super duper secret info that noone will  expect";
+//   char *key = "this is my secret key";
+//   char *path = "./gates_of_divinity.png";
+//   char *path2 = "./gates_of_divinity2.png";
+//   for (int zh = 0; zh < argc; zh++) {
+//     printf("%s\n", argv[zh]);
+//   }
+//   // return 0;
+//   Conf *config = init(path);
+//
+//   // int len = strlen(string);
+//   int total_pixels = config->height * config->width;
+//   Lcg *s = init_seed(key, total_pixels);
+//   int *seq = fy_shuffle(s);
+//   encode_bytes(config, seq, string);
+//
+//   write_png_file(path2, config->write_pngp, config->write_infop,
+//                  config->row_pointers);
+//   free_config(config);
+//   config = init(path2);
+//   // seq = fy_shuffle(s);
+//   char *decoded_string = decode_bytes(config, seq);
+//   create_diff(config, seq);
+//   free_config(config);
+// }
